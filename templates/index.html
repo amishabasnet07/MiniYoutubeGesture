@@ -68,12 +68,12 @@
   <section class="videos">
     {% for song in songs %}
     <div class="video-card">
-      <img src="{{ url_for('static', filename='images/' + (song[4] if song[4] else 'default.jpg')) }}" alt="{{ song[1] }}">
+      <img src="{{ url_for('static', filename='images/' + (song['image'] if song['image'] else 'default.jpg')) }}" alt="{{ song['title'] }}">
       <div class="video-info">
-        <h3>{{ song[1] }}</h3>
-        <p>{{ song[2] }}</p>
+        <h3>{{ song['title'] }}</h3>
+        <p>{{ song['artist'] }}</p>
         <audio controls>
-          <source src="{{ url_for('static', filename='songs/' + song[3]) }}" type="audio/mpeg">
+          <source src="{{ url_for('static', filename='songs/' + song['filename']) }}" type="audio/mpeg">
           Your browser does not support the audio element.
         </audio>
       </div>

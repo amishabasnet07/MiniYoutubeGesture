@@ -3,14 +3,14 @@ import sqlite3
 import os
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key_here'  # Change to a secure random key
+app.secret_key = 'your_secret_key_here'
 DB = 'songs.db'
 
+# ✅ Create DB and table if not exists
 def init_db():
     if not os.path.exists(DB):
         conn = sqlite3.connect(DB)
-        c = conn.cursor()
-        c.execute('''
+        conn.execute('''
             CREATE TABLE songs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
@@ -22,11 +22,13 @@ def init_db():
         conn.commit()
         conn.close()
 
+# ✅ Return rows as dictionaries (to fix the 'tuple' error)
 def get_db_connection():
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
     return conn
 
+# ✅ User homepage
 @app.route('/')
 def home():
     conn = get_db_connection()
@@ -34,6 +36,7 @@ def home():
     conn.close()
     return render_template('index.html', songs=songs)
 
+# ✅ Admin login
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
@@ -60,6 +63,7 @@ def admin_required(func):
         return func(*args, **kwargs)
     return wrapper
 
+# ✅ Admin dashboard
 @app.route('/admin')
 @admin_required
 def admin_dashboard():
@@ -68,6 +72,7 @@ def admin_dashboard():
     conn.close()
     return render_template('admin.html', songs=songs)
 
+# ✅ Add song
 @app.route('/admin/add', methods=['POST'])
 @admin_required
 def admin_add_song():
@@ -86,6 +91,7 @@ def admin_add_song():
     flash('Song added successfully.')
     return redirect(url_for('admin_dashboard'))
 
+# ✅ Edit song
 @app.route('/admin/edit/<int:song_id>', methods=['POST'])
 @admin_required
 def admin_edit_song(song_id):
@@ -104,6 +110,7 @@ def admin_edit_song(song_id):
     flash('Song updated successfully.')
     return redirect(url_for('admin_dashboard'))
 
+# ✅ Delete song
 @app.route('/admin/delete/<int:song_id>', methods=['POST'])
 @admin_required
 def admin_delete_song(song_id):
@@ -112,7 +119,7 @@ def admin_delete_song(song_id):
     conn.commit()
     conn.close()
     flash('Song deleted successfully.')
-    return redirect(url_for('admin'))
+    return redirect(url_for('admin_dashboard'))
 
 if __name__ == '__main__':
     init_db()
