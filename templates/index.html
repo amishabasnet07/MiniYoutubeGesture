@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Mini YouTube</title>
+  <title>Mini YouTube with Gesture Volume</title>
   <style>
     body {
       margin: 0;
@@ -22,7 +22,7 @@
     }
     .videos {
       display: grid;
-      grid-template-columns: repeat(4, 1fr); /* 4 cards per row */
+      grid-template-columns: repeat(4, 1fr);
       gap: 15px;
       padding: 20px;
     }
@@ -33,12 +33,18 @@
       cursor: pointer;
       padding: 10px;
       box-sizing: border-box;
+      transition: transform 0.3s ease;
+    }
+    .video-card:hover {
+      transform: scale(1.03);
     }
     .video-card img {
       width: 100%;
       height: 150px;
-      object-fit: cover;
+      object-fit: contain;
+      background: #000;
       border-radius: 4px;
+      display: block;
     }
     .video-info {
       padding: 10px 0 0 0;
@@ -58,6 +64,10 @@
       border-radius: 4px;
       background: #333;
     }
+    /* Hide the webcam video */
+    #input_video {
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -68,7 +78,7 @@
   <section class="videos">
     {% for song in songs %}
     <div class="video-card">
-      <img src="{{ url_for('static', filename='images/' + (song['image'] if song['image'] else 'default.jpg')) }}" alt="{{ song['title'] }}">
+      <img src="{{ url_for('static', filename='images/' + (song['image'] or 'default.jpg')) }}" alt="{{ song['title'] }}">
       <div class="video-info">
         <h3>{{ song['title'] }}</h3>
         <p>{{ song['artist'] }}</p>
@@ -80,5 +90,93 @@
     </div>
     {% endfor %}
   </section>
+
+  <!-- Hidden video element for webcam -->
+  <video id="input_video" playsinline></video>
+
+  <!-- MediaPipe Hands libs -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+
+  <script>
+    window.onload = function () {
+      const audios = document.querySelectorAll('audio');
+
+      // Only one audio playing at a time
+      audios.forEach(audio => {
+        audio.addEventListener('play', () => {
+          audios.forEach(other => {
+            if (other !== audio) other.pause();
+          });
+        });
+      });
+
+      // Sync volume and mute status across audios
+      audios.forEach(audio => {
+        audio.addEventListener('volumechange', () => {
+          const newVolume = audio.volume;
+          const isMuted = audio.muted;
+          audios.forEach(other => {
+            if (other !== audio) {
+              other.volume = newVolume;
+              other.muted = isMuted;
+            }
+          });
+        });
+      });
+
+      // MediaPipe Hands setup for gesture volume control
+      const videoElement = document.getElementById('input_video');
+
+      const hands = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+      });
+
+      hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.7,
+        minTrackingConfidence: 0.7
+      });
+
+      hands.onResults(onResults);
+
+      const camera = new Camera(videoElement, {
+        onFrame: async () => {
+          await hands.send({image: videoElement});
+        },
+        width: 640,
+        height: 480
+      });
+      camera.start();
+
+      function onResults(results) {
+        if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+          return;
+        }
+
+        const landmarks = results.multiHandLandmarks[0];
+        const thumbTip = landmarks[4];
+        const indexTip = landmarks[8];
+
+        // Euclidean distance between thumb tip and index tip (normalized coords)
+        const dx = thumbTip.x - indexTip.x;
+        const dy = thumbTip.y - indexTip.y;
+        const distance = Math.sqrt(dx*dx + dy*dy);
+
+        // Map distance to volume [0,1]
+        // Adjust these values if needed for your comfort
+        let volume = (distance - 0.02) / (0.3 - 0.02);
+        volume = Math.min(Math.max(volume, 0), 1);
+
+        // Update volume and unmute all audios
+        audios.forEach(audio => {
+          audio.volume = volume;
+          audio.muted = false;
+        });
+      }
+    };
+  </script>
 </body>
 </html>
