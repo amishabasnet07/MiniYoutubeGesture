@@ -1,24 +1,15 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Mini YouTube with Gesture Volume</title>
+  <meta charset="UTF-8" />
+  <title>Gesture Controlled MiniYouTube (Smooth Scroll + Volume)</title>
   <style>
     body {
       margin: 0;
       font-family: Arial, sans-serif;
       background: #121212;
       color: #fff;
-    }
-    header {
-      background: #202020;
-      padding: 10px 20px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    header h1 {
-      margin: 0;
-      color: #ff0000;
+      scroll-behavior: smooth;
     }
     .videos {
       display: grid;
@@ -29,11 +20,9 @@
     .video-card {
       background: #181818;
       border-radius: 8px;
-      overflow: hidden;
-      cursor: pointer;
       padding: 10px;
-      box-sizing: border-box;
-      transition: transform 0.3s ease;
+      cursor: pointer;
+      transition: transform 0.3s;
     }
     .video-card:hover {
       transform: scale(1.03);
@@ -42,140 +31,202 @@
       width: 100%;
       height: 150px;
       object-fit: contain;
-      background: #000;
       border-radius: 4px;
-      display: block;
-    }
-    .video-info {
-      padding: 10px 0 0 0;
-    }
-    .video-info h3 {
-      margin: 0;
-      font-size: 16px;
-    }
-    .video-info p {
-      margin: 5px 0 10px;
-      font-size: 13px;
-      color: #aaa;
     }
     audio {
       width: 100%;
-      outline: none;
-      border-radius: 4px;
       background: #333;
+      border-radius: 4px;
     }
-    /* Hide the webcam video */
     #input_video {
       display: none;
+    }
+    #volume-icon, #volume-lock-status {
+      position: fixed;
+      top: 10px;
+      background: #fff;
+      color: #000;
+      padding: 6px 12px;
+      border-radius: 5px;
+      font-weight: bold;
+      z-index: 1000;
+      transition: opacity 0.3s ease;
+      opacity: 0.5;
+      user-select: none;
+    }
+    #volume-icon {
+      right: 20px;
+    }
+    #volume-lock-status {
+      right: 150px;
     }
   </style>
 </head>
 <body>
-  <header>
-    <h1>MiniYouTube</h1>
-  </header>
-
+  <header><h1>MiniYouTube with Gesture Controls</h1></header>
+  <div id="volume-icon">🔊 100%</div>
+  <div id="volume-lock-status">🔓 Unlocked</div>
   <section class="videos">
     {% for song in songs %}
     <div class="video-card">
-      <img src="{{ url_for('static', filename='images/' + (song['image'] or 'default.jpg')) }}" alt="{{ song['title'] }}">
-      <div class="video-info">
-        <h3>{{ song['title'] }}</h3>
-        <p>{{ song['artist'] }}</p>
+      <img src="{{ url_for('static', filename='images/' + (song.image | default('default.jpg'))) }}" alt="{{ song.title }}">
+      <div>
+        <h3>{{ song.title }}</h3>
+        <p>{{ song.artist }}</p>
         <audio controls>
-          <source src="{{ url_for('static', filename='songs/' + song['filename']) }}" type="audio/mpeg">
-          Your browser does not support the audio element.
+          <source src="{{ url_for('static', filename='songs/' + song.filename) }}" type="audio/mpeg" />
         </audio>
       </div>
     </div>
     {% endfor %}
   </section>
 
-  <!-- Hidden video element for webcam -->
   <video id="input_video" playsinline></video>
 
-  <!-- MediaPipe Hands libs -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
   <script>
-    window.onload = function () {
-      const audios = document.querySelectorAll('audio');
+    window.onload = () => {
+      const audios = Array.from(document.querySelectorAll('audio'));
+      const volumeDisplay = document.getElementById('volume-icon');
+      const volumeStatus = document.getElementById('volume-lock-status');
+      let currentAudio = null;
+      let volumeLocked = false;
+      let playPauseState = null;
 
-      // Only one audio playing at a time
+      // Variables for smooth scroll
+      let scrollVelocity = 0;
+      let prevMiddleY = null;
+
+      function updateVolumeDisplay(volume) {
+        const percent = Math.round(volume * 100);
+        volumeDisplay.textContent = `🔊 ${percent}%`;
+        volumeDisplay.style.opacity = 1;
+        clearTimeout(volumeDisplay._timeout);
+        volumeDisplay._timeout = setTimeout(() => {
+          volumeDisplay.style.opacity = 0.5;
+        }, 1500);
+      }
+
+      function updateVolumeLockDisplay(locked) {
+        volumeStatus.textContent = locked ? '🔒 Locked' : '🔓 Unlocked';
+        volumeStatus.style.opacity = 1;
+        clearTimeout(volumeStatus._timeout);
+        volumeStatus._timeout = setTimeout(() => {
+          volumeStatus.style.opacity = 0.5;
+        }, 1500);
+      }
+
       audios.forEach(audio => {
+        audio.volume = 1;
         audio.addEventListener('play', () => {
+          currentAudio = audio;
+          playPauseState = 'playing';
           audios.forEach(other => {
             if (other !== audio) other.pause();
           });
         });
-      });
-
-      // Sync volume and mute status across audios
-      audios.forEach(audio => {
-        audio.addEventListener('volumechange', () => {
-          const newVolume = audio.volume;
-          const isMuted = audio.muted;
-          audios.forEach(other => {
-            if (other !== audio) {
-              other.volume = newVolume;
-              other.muted = isMuted;
-            }
-          });
+        audio.addEventListener('pause', () => {
+          if (audio === currentAudio) playPauseState = 'paused';
         });
       });
 
-      // MediaPipe Hands setup for gesture volume control
-      const videoElement = document.getElementById('input_video');
+      function isFingerExtended(landmarks, tipIdx, pipIdx) {
+        return landmarks[tipIdx].y < landmarks[pipIdx].y;
+      }
+
+      function handleRightHand(landmarks) {
+        if (!currentAudio) return;
+
+        const fingers = [8, 12, 16, 20].map(tip => isFingerExtended(landmarks, tip, tip - 2));
+        const extendedCount = fingers.filter(x => x).length;
+
+        if (extendedCount === 4 && playPauseState === 'paused') {
+          currentAudio.play();
+          playPauseState = 'playing';
+        } else if (extendedCount === 0 && playPauseState === 'playing') {
+          currentAudio.pause();
+          playPauseState = 'paused';
+        }
+
+        if (!volumeLocked) {
+          const thumb = landmarks[4];
+          const index = landmarks[8];
+          const dist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
+          let volume = (dist - 0.02) / (0.3 - 0.02);
+          volume = Math.min(Math.max(volume, 0), 1);
+          audios.forEach(audio => audio.volume = volume);
+          updateVolumeDisplay(volume);
+        }
+      }
+
+      function handleLeftHand(landmarks) {
+        const thumbExtended = isFingerExtended(landmarks, 4, 3);
+        const indexExtended = isFingerExtended(landmarks, 8, 6);
+        const middleY = landmarks[12].y;
+
+        // Volume lock/unlock gesture
+        if (thumbExtended && !indexExtended && !volumeLocked) {
+          volumeLocked = true;
+          updateVolumeLockDisplay(true);
+        } else if (!thumbExtended && indexExtended && volumeLocked) {
+          volumeLocked = false;
+          updateVolumeLockDisplay(false);
+        }
+
+        // Smooth continuous scroll velocity calculation
+        if (prevMiddleY !== null) {
+          const deltaY = prevMiddleY - middleY; // positive = finger moves up
+          scrollVelocity = deltaY * 1200; // Adjust scroll speed factor here
+        }
+        prevMiddleY = middleY;
+      }
+
+      // Smooth scroll animation loop
+      function animateScroll() {
+        if (Math.abs(scrollVelocity) > 0.1) {
+          window.scrollBy(0, -scrollVelocity);
+          scrollVelocity *= 0.85; // decay factor for smooth stop
+        }
+        requestAnimationFrame(animateScroll);
+      }
+
+      animateScroll(); // start animation loop
 
       const hands = new Hands({
         locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
       });
-
       hands.setOptions({
-        maxNumHands: 1,
+        maxNumHands: 2,
         modelComplexity: 1,
         minDetectionConfidence: 0.7,
         minTrackingConfidence: 0.7
       });
 
-      hands.onResults(onResults);
+      hands.onResults(results => {
+        if (!results.multiHandLandmarks || !results.multiHandedness) return;
 
-      const camera = new Camera(videoElement, {
+        let rightUsed = false;
+        results.multiHandedness.forEach((hand, idx) => {
+          const landmarks = results.multiHandLandmarks[idx];
+          if (hand.label === "Right" && !rightUsed) {
+            handleRightHand(landmarks);
+            rightUsed = true; // Only first detected right hand controls playback
+          } else if (hand.label === "Left") {
+            handleLeftHand(landmarks);
+          }
+        });
+      });
+
+      const camera = new Camera(document.getElementById('input_video'), {
         onFrame: async () => {
-          await hands.send({image: videoElement});
+          await hands.send({ image: document.getElementById('input_video') });
         },
         width: 640,
         height: 480
       });
       camera.start();
-
-      function onResults(results) {
-        if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-          return;
-        }
-
-        const landmarks = results.multiHandLandmarks[0];
-        const thumbTip = landmarks[4];
-        const indexTip = landmarks[8];
-
-        // Euclidean distance between thumb tip and index tip (normalized coords)
-        const dx = thumbTip.x - indexTip.x;
-        const dy = thumbTip.y - indexTip.y;
-        const distance = Math.sqrt(dx*dx + dy*dy);
-
-        // Map distance to volume [0,1]
-        // Adjust these values if needed for your comfort
-        let volume = (distance - 0.02) / (0.3 - 0.02);
-        volume = Math.min(Math.max(volume, 0), 1);
-
-        // Update volume and unmute all audios
-        audios.forEach(audio => {
-          audio.volume = volume;
-          audio.muted = false;
-        });
-      }
     };
   </script>
 </body>
