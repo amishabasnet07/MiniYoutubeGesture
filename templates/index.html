@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Gesture Controlled MiniYouTube (Smooth Scroll + Volume)</title>
+  <title>Gesture Controlled MiniYouTube</title>
   <style>
     body {
       margin: 0;
@@ -89,17 +89,62 @@
   <script>
     window.onload = () => {
       const audios = Array.from(document.querySelectorAll('audio'));
-      const volumeDisplay = document.getElementById('volume-icon');
-      const volumeStatus = document.getElementById('volume-lock-status');
       let currentAudio = null;
       let volumeLocked = false;
       let playPauseState = null;
-
-      // Variables for smooth scroll
       let scrollVelocity = 0;
-      let prevMiddleY = null;
+      let prevMiddleYLeft = null;  // For left hand scroll
+      let lastRightHandX = null;
+      let lastRightTime = 0;
+
+      // Scroll and swipe cooldowns + dead zone
+      let scrollCooldownUntil = 0;
+      const SWIPE_COOLDOWN = 1500;
+      const SCROLL_DEADZONE = 0.005;  // minimal vertical movement to scroll
+
+      const FULL_HAND_FINGERS = [8, 12, 16, 20];
+
+      function isExtended(landmarks, tip, pip) {
+        return landmarks[tip].y < landmarks[pip].y;
+      }
+
+      function areAllFingersExtended(landmarks) {
+        return FULL_HAND_FINGERS.every(tip => isExtended(landmarks, tip, tip - 2));
+      }
+
+      function areAllFingersClosed(landmarks) {
+        return FULL_HAND_FINGERS.every(tip => !isExtended(landmarks, tip, tip - 2));
+      }
+
+      function playNextSong() {
+        if (!currentAudio) return;
+        const index = audios.indexOf(currentAudio);
+        const next = (index + 1) % audios.length;
+        audios[next].play();
+      }
+
+      function playPreviousSong() {
+        if (!currentAudio) return;
+        const index = audios.indexOf(currentAudio);
+        const prev = (index - 1 + audios.length) % audios.length;
+        audios[prev].play();
+      }
+
+      audios.forEach(audio => {
+        audio.volume = 1;
+        audio.addEventListener('play', () => {
+          currentAudio = audio;
+          playPauseState = 'playing';
+          audios.forEach(a => { if (a !== audio) a.pause(); });
+        });
+        audio.addEventListener('pause', () => {
+          if (audio === currentAudio) playPauseState = 'paused';
+        });
+        audio.addEventListener('ended', playNextSong);
+      });
 
       function updateVolumeDisplay(volume) {
+        const volumeDisplay = document.getElementById('volume-icon');
         const percent = Math.round(volume * 100);
         volumeDisplay.textContent = `🔊 ${percent}%`;
         volumeDisplay.style.opacity = 1;
@@ -110,6 +155,7 @@
       }
 
       function updateVolumeLockDisplay(locked) {
+        const volumeStatus = document.getElementById('volume-lock-status');
         volumeStatus.textContent = locked ? '🔒 Locked' : '🔓 Unlocked';
         volumeStatus.style.opacity = 1;
         clearTimeout(volumeStatus._timeout);
@@ -118,84 +164,79 @@
         }, 1500);
       }
 
-      audios.forEach(audio => {
-        audio.volume = 1;
-        audio.addEventListener('play', () => {
-          currentAudio = audio;
-          playPauseState = 'playing';
-          audios.forEach(other => {
-            if (other !== audio) other.pause();
-          });
-        });
-        audio.addEventListener('pause', () => {
-          if (audio === currentAudio) playPauseState = 'paused';
-        });
-      });
-
-      function isFingerExtended(landmarks, tipIdx, pipIdx) {
-        return landmarks[tipIdx].y < landmarks[pipIdx].y;
-      }
-
       function handleRightHand(landmarks) {
         if (!currentAudio) return;
 
-        const fingers = [8, 12, 16, 20].map(tip => isFingerExtended(landmarks, tip, tip - 2));
-        const extendedCount = fingers.filter(x => x).length;
+        const now = Date.now();
+        const allExtended = areAllFingersExtended(landmarks);
+        const allClosed = areAllFingersClosed(landmarks);
 
-        if (extendedCount === 4 && playPauseState === 'paused') {
-          currentAudio.play();
-          playPauseState = 'playing';
-        } else if (extendedCount === 0 && playPauseState === 'playing') {
-          currentAudio.pause();
-          playPauseState = 'paused';
-        }
+        if (allExtended && playPauseState === 'paused') currentAudio.play();
+        else if (allClosed && playPauseState === 'playing') currentAudio.pause();
 
         if (!volumeLocked) {
-          const thumb = landmarks[4];
-          const index = landmarks[8];
-          const dist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
-          let volume = (dist - 0.02) / (0.3 - 0.02);
-          volume = Math.min(Math.max(volume, 0), 1);
-          audios.forEach(audio => audio.volume = volume);
-          updateVolumeDisplay(volume);
+          const dist = Math.hypot(landmarks[4].x - landmarks[8].x, landmarks[4].y - landmarks[8].y);
+          let vol = Math.min(Math.max((dist - 0.02) / (0.3 - 0.02), 0), 1);
+          currentAudio.volume = vol;
+          updateVolumeDisplay(vol);
         }
+
+        // Swipe logic using full hand extended
+        if (allExtended && lastRightHandX !== null && now - lastRightTime > SWIPE_COOLDOWN) {
+          const dx = landmarks[0].x - lastRightHandX;
+          if (dx < -0.15) {
+            playNextSong();
+            lastRightTime = now;
+            scrollCooldownUntil = now + 1000;  // disable scroll for 1 sec after swipe
+          } else if (dx > 0.15) {
+            playPreviousSong();
+            lastRightTime = now;
+            scrollCooldownUntil = now + 1000;
+          }
+        }
+        lastRightHandX = landmarks[0].x;
       }
 
       function handleLeftHand(landmarks) {
-        const thumbExtended = isFingerExtended(landmarks, 4, 3);
-        const indexExtended = isFingerExtended(landmarks, 8, 6);
+        const thumb = isExtended(landmarks, 4, 3);
+        const index = isExtended(landmarks, 8, 6);
         const middleY = landmarks[12].y;
 
-        // Volume lock/unlock gesture
-        if (thumbExtended && !indexExtended && !volumeLocked) {
+        if (thumb && !index && !volumeLocked) {
           volumeLocked = true;
           updateVolumeLockDisplay(true);
-        } else if (!thumbExtended && indexExtended && volumeLocked) {
+        } else if (!thumb && index && volumeLocked) {
           volumeLocked = false;
           updateVolumeLockDisplay(false);
         }
 
-        // Smooth continuous scroll velocity calculation
-        if (prevMiddleY !== null) {
-          const deltaY = prevMiddleY - middleY; // positive = finger moves up
-          scrollVelocity = deltaY * 1200; // Adjust scroll speed factor here
+        const now = Date.now();
+
+        if (now < scrollCooldownUntil) {
+          // disable scroll during cooldown
+          scrollVelocity = 0;
+        } else if (prevMiddleYLeft !== null) {
+          const deltaY = prevMiddleYLeft - middleY;
+          if (Math.abs(deltaY) > SCROLL_DEADZONE) {
+            scrollVelocity = deltaY * 1200;
+          } else {
+            scrollVelocity *= 0.5;  // slow decay for smooth stop
+          }
         }
-        prevMiddleY = middleY;
+        prevMiddleYLeft = middleY;
       }
 
-      // Smooth scroll animation loop
       function animateScroll() {
         if (Math.abs(scrollVelocity) > 0.1) {
           window.scrollBy(0, -scrollVelocity);
-          scrollVelocity *= 0.85; // decay factor for smooth stop
+          scrollVelocity *= 0.85;
         }
         requestAnimationFrame(animateScroll);
       }
-
-      animateScroll(); // start animation loop
+      animateScroll();
 
       const hands = new Hands({
-        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
       });
       hands.setOptions({
         maxNumHands: 2,
@@ -206,23 +247,20 @@
 
       hands.onResults(results => {
         if (!results.multiHandLandmarks || !results.multiHandedness) return;
-
-        let rightUsed = false;
-        results.multiHandedness.forEach((hand, idx) => {
-          const landmarks = results.multiHandLandmarks[idx];
-          if (hand.label === "Right" && !rightUsed) {
-            handleRightHand(landmarks);
-            rightUsed = true; // Only first detected right hand controls playback
-          } else if (hand.label === "Left") {
-            handleLeftHand(landmarks);
+        let usedRight = false;
+        results.multiHandedness.forEach((handedness, i) => {
+          const lm = results.multiHandLandmarks[i];
+          if (handedness.label === "Right" && !usedRight) {
+            handleRightHand(lm);
+            usedRight = true;
+          } else if (handedness.label === "Left") {
+            handleLeftHand(lm);
           }
         });
       });
 
       const camera = new Camera(document.getElementById('input_video'), {
-        onFrame: async () => {
-          await hands.send({ image: document.getElementById('input_video') });
-        },
+        onFrame: async () => await hands.send({ image: document.getElementById('input_video') }),
         width: 640,
         height: 480
       });
