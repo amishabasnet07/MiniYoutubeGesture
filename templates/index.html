@@ -1,15 +1,15 @@
+<!-- templates/index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Gesture Controlled MiniYouTube</title>
+  <title>MiniYouTube</title>
   <style>
     body {
       margin: 0;
       font-family: Arial, sans-serif;
       background: #121212;
       color: #fff;
-      scroll-behavior: smooth;
     }
     .videos {
       display: grid;
@@ -33,239 +33,61 @@
       object-fit: contain;
       border-radius: 4px;
     }
-    audio {
-      width: 100%;
-      background: #333;
-      border-radius: 4px;
-    }
     #input_video {
       display: none;
-    }
-    #volume-icon, #volume-lock-status {
-      position: fixed;
-      top: 10px;
-      background: #fff;
-      color: #000;
-      padding: 6px 12px;
-      border-radius: 5px;
-      font-weight: bold;
-      z-index: 1000;
-      transition: opacity 0.3s ease;
-      opacity: 0.5;
-      user-select: none;
-    }
-    #volume-icon {
-      right: 20px;
-    }
-    #volume-lock-status {
-      right: 150px;
     }
   </style>
 </head>
 <body>
-  <header><h1>MiniYouTube with Gesture Controls</h1></header>
-  <div id="volume-icon">🔊 100%</div>
-  <div id="volume-lock-status">🔓 Unlocked</div>
+  <h1 style="padding: 20px;">MiniYouTube</h1>
   <section class="videos">
     {% for song in songs %}
-    <div class="video-card">
-      <img src="{{ url_for('static', filename='images/' + (song.image | default('default.jpg'))) }}" alt="{{ song.title }}">
-      <div>
-        <h3>{{ song.title }}</h3>
-        <p>{{ song.artist }}</p>
-        <audio controls>
-          <source src="{{ url_for('static', filename='songs/' + song.filename) }}" type="audio/mpeg" />
-        </audio>
-      </div>
+    <div class="video-card" onclick="location.href='/play/{{ song.id }}'">
+      <img src="{{ url_for('static', filename='images/' + (song.image or 'default.jpg')) }}" alt="{{ song.title }}">
+      <h3>{{ song.title }}</h3>
+      <p>{{ song.artist }}</p>
     </div>
     {% endfor %}
   </section>
 
   <video id="input_video" playsinline></video>
 
+  <!-- Only Scroll Left/Right using Left Index Finger -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-
   <script>
-    window.onload = () => {
-      const audios = Array.from(document.querySelectorAll('audio'));
-      let currentAudio = null;
-      let volumeLocked = false;
-      let playPauseState = null;
-      let scrollVelocity = 0;
-      let prevMiddleYLeft = null;  // For left hand scroll
-      let lastRightHandX = null;
-      let lastRightTime = 0;
+    let lastX = null;
+    let scrollVelocity = 0;
 
-      // Scroll and swipe cooldowns + dead zone
-      let scrollCooldownUntil = 0;
-      const SWIPE_COOLDOWN = 1500;
-      const SCROLL_DEADZONE = 0.005;  // minimal vertical movement to scroll
+    function isIndexOnly(landmarks) {
+      const index = landmarks[8].y < landmarks[6].y;
+      const others = [12, 16, 20].every(i => landmarks[i].y > landmarks[i - 2].y);
+      return index && others;
+    }
 
-      const FULL_HAND_FINGERS = [8, 12, 16, 20];
-
-      function isExtended(landmarks, tip, pip) {
-        return landmarks[tip].y < landmarks[pip].y;
+    function handleLeftScroll(landmarks) {
+      if (!isIndexOnly(landmarks)) return;
+      const currX = landmarks[8].x;
+      if (lastX !== null) {
+        let deltaX = currX - lastX;
+        window.scrollBy(0, -deltaX * 1000);
       }
+      lastX = currX;
+    }
 
-      function areAllFingersExtended(landmarks) {
-        return FULL_HAND_FINGERS.every(tip => isExtended(landmarks, tip, tip - 2));
+    const hands = new Hands({ locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+    hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
+    hands.onResults(res => {
+      if (res.multiHandLandmarks && res.multiHandedness[0].label === "Left") {
+        handleLeftScroll(res.multiHandLandmarks[0]);
       }
+    });
 
-      function areAllFingersClosed(landmarks) {
-        return FULL_HAND_FINGERS.every(tip => !isExtended(landmarks, tip, tip - 2));
-      }
-
-      function playNextSong() {
-        if (!currentAudio) return;
-        const index = audios.indexOf(currentAudio);
-        const next = (index + 1) % audios.length;
-        audios[next].play();
-      }
-
-      function playPreviousSong() {
-        if (!currentAudio) return;
-        const index = audios.indexOf(currentAudio);
-        const prev = (index - 1 + audios.length) % audios.length;
-        audios[prev].play();
-      }
-
-      audios.forEach(audio => {
-        audio.volume = 1;
-        audio.addEventListener('play', () => {
-          currentAudio = audio;
-          playPauseState = 'playing';
-          audios.forEach(a => { if (a !== audio) a.pause(); });
-        });
-        audio.addEventListener('pause', () => {
-          if (audio === currentAudio) playPauseState = 'paused';
-        });
-        audio.addEventListener('ended', playNextSong);
-      });
-
-      function updateVolumeDisplay(volume) {
-        const volumeDisplay = document.getElementById('volume-icon');
-        const percent = Math.round(volume * 100);
-        volumeDisplay.textContent = `🔊 ${percent}%`;
-        volumeDisplay.style.opacity = 1;
-        clearTimeout(volumeDisplay._timeout);
-        volumeDisplay._timeout = setTimeout(() => {
-          volumeDisplay.style.opacity = 0.5;
-        }, 1500);
-      }
-
-      function updateVolumeLockDisplay(locked) {
-        const volumeStatus = document.getElementById('volume-lock-status');
-        volumeStatus.textContent = locked ? '🔒 Locked' : '🔓 Unlocked';
-        volumeStatus.style.opacity = 1;
-        clearTimeout(volumeStatus._timeout);
-        volumeStatus._timeout = setTimeout(() => {
-          volumeStatus.style.opacity = 0.5;
-        }, 1500);
-      }
-
-      function handleRightHand(landmarks) {
-        if (!currentAudio) return;
-
-        const now = Date.now();
-        const allExtended = areAllFingersExtended(landmarks);
-        const allClosed = areAllFingersClosed(landmarks);
-
-        if (allExtended && playPauseState === 'paused') currentAudio.play();
-        else if (allClosed && playPauseState === 'playing') currentAudio.pause();
-
-        if (!volumeLocked) {
-          const dist = Math.hypot(landmarks[4].x - landmarks[8].x, landmarks[4].y - landmarks[8].y);
-          let vol = Math.min(Math.max((dist - 0.02) / (0.3 - 0.02), 0), 1);
-          currentAudio.volume = vol;
-          updateVolumeDisplay(vol);
-        }
-
-        // Swipe logic using full hand extended
-        if (allExtended && lastRightHandX !== null && now - lastRightTime > SWIPE_COOLDOWN) {
-          const dx = landmarks[0].x - lastRightHandX;
-          if (dx < -0.15) {
-            playNextSong();
-            lastRightTime = now;
-            scrollCooldownUntil = now + 1000;  // disable scroll for 1 sec after swipe
-          } else if (dx > 0.15) {
-            playPreviousSong();
-            lastRightTime = now;
-            scrollCooldownUntil = now + 1000;
-          }
-        }
-        lastRightHandX = landmarks[0].x;
-      }
-
-      function handleLeftHand(landmarks) {
-        const thumb = isExtended(landmarks, 4, 3);
-        const index = isExtended(landmarks, 8, 6);
-        const middleY = landmarks[12].y;
-
-        if (thumb && !index && !volumeLocked) {
-          volumeLocked = true;
-          updateVolumeLockDisplay(true);
-        } else if (!thumb && index && volumeLocked) {
-          volumeLocked = false;
-          updateVolumeLockDisplay(false);
-        }
-
-        const now = Date.now();
-
-        if (now < scrollCooldownUntil) {
-          // disable scroll during cooldown
-          scrollVelocity = 0;
-        } else if (prevMiddleYLeft !== null) {
-          const deltaY = prevMiddleYLeft - middleY;
-          if (Math.abs(deltaY) > SCROLL_DEADZONE) {
-            scrollVelocity = deltaY * 1200;
-          } else {
-            scrollVelocity *= 0.5;  // slow decay for smooth stop
-          }
-        }
-        prevMiddleYLeft = middleY;
-      }
-
-      function animateScroll() {
-        if (Math.abs(scrollVelocity) > 0.1) {
-          window.scrollBy(0, -scrollVelocity);
-          scrollVelocity *= 0.85;
-        }
-        requestAnimationFrame(animateScroll);
-      }
-      animateScroll();
-
-      const hands = new Hands({
-        locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-      });
-      hands.setOptions({
-        maxNumHands: 2,
-        modelComplexity: 1,
-        minDetectionConfidence: 0.7,
-        minTrackingConfidence: 0.7
-      });
-
-      hands.onResults(results => {
-        if (!results.multiHandLandmarks || !results.multiHandedness) return;
-        let usedRight = false;
-        results.multiHandedness.forEach((handedness, i) => {
-          const lm = results.multiHandLandmarks[i];
-          if (handedness.label === "Right" && !usedRight) {
-            handleRightHand(lm);
-            usedRight = true;
-          } else if (handedness.label === "Left") {
-            handleLeftHand(lm);
-          }
-        });
-      });
-
-      const camera = new Camera(document.getElementById('input_video'), {
-        onFrame: async () => await hands.send({ image: document.getElementById('input_video') }),
-        width: 640,
-        height: 480
-      });
-      camera.start();
-    };
+    const camera = new Camera(document.getElementById('input_video'), {
+      onFrame: async () => await hands.send({ image: document.getElementById('input_video') }),
+      width: 640, height: 480
+    });
+    camera.start();
   </script>
 </body>
 </html>

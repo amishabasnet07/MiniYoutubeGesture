@@ -22,19 +22,29 @@ def init_db():
         conn.commit()
         conn.close()
 
-# ✅ Return rows as dictionaries (to fix the 'tuple' error)
+# ✅ Return rows as dictionaries
 def get_db_connection():
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
     return conn
 
-# ✅ User homepage
+# ✅ Home page (gesture-controlled player)
 @app.route('/')
 def home():
     conn = get_db_connection()
     songs = conn.execute('SELECT * FROM songs').fetchall()
     conn.close()
     return render_template('index.html', songs=songs)
+
+# ✅ Route to play song
+@app.route('/play/<int:song_id>')
+def play_song(song_id):
+    conn = get_db_connection()
+    song = conn.execute('SELECT * FROM songs WHERE id=?', (song_id,)).fetchone()
+    conn.close()
+    if not song:
+        return "Song not found", 404
+    return render_template('player.html', song=song)
 
 # ✅ Admin login
 @app.route('/admin/login', methods=['GET', 'POST'])
@@ -121,6 +131,7 @@ def admin_delete_song(song_id):
     flash('Song deleted successfully.')
     return redirect(url_for('admin_dashboard'))
 
+# ✅ Run App
 if __name__ == '__main__':
     init_db()
     app.run(debug=True)

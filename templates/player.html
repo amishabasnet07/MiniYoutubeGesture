@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ song.title }} - MiniYouTube</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto&display=swap" rel="stylesheet" />
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      background: #0f0f0f;
+      color: #fff;
+      font-family: 'Roboto', sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+      flex-direction: column;
+    }
+    .player-container {
+      background: #181818;
+      border-radius: 20px;
+      padding: 30px;
+      max-width: 600px;
+      width: 100%;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+      text-align: center;
+    }
+    .player-container img {
+      width: 100%;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      object-fit: cover;
+      height: 300px;
+    }
+    h1 {
+      font-size: 24px;
+      margin-bottom: 10px;
+    }
+    h3 {
+      font-size: 18px;
+      color: #aaa;
+      margin-bottom: 20px;
+    }
+    audio {
+      width: 100%;
+      outline: none;
+    }
+    a.back-btn {
+      margin-top: 20px;
+      text-decoration: none;
+      color: #0af;
+      font-weight: bold;
+      font-size: 16px;
+    }
+
+    #input_video {
+      display: none;
+    }
+    #volume-icon, #volume-lock-status {
+      position: fixed;
+      top: 10px;
+      background: #fff;
+      color: #000;
+      padding: 6px 12px;
+      border-radius: 5px;
+      font-weight: bold;
+      z-index: 1000;
+      transition: opacity 0.3s ease;
+      opacity: 0.5;
+      user-select: none;
+    }
+    #volume-icon {
+      right: 20px;
+    }
+    #volume-lock-status {
+      right: 150px;
+    }
+  </style>
+</head>
+<body>
+  <div class="player-container">
+    <img src="{{ url_for('static', filename='images/' + song.image) }}" alt="Cover" />
+    <h1>{{ song.title }}</h1>
+    <h3>{{ song.artist }}</h3>
+    <audio id="player" controls autoplay>
+      <source src="{{ url_for('static', filename='songs/' + song.filename) }}" type="audio/mpeg">
+    </audio>
+    <a href="/" class="back-btn">⬅ Back to Home</a>
+  </div>
+
+  <div id="volume-icon">🔊 100%</div>
+  <div id="volume-lock-status">🔓 Unlocked</div>
+  <video id="input_video" playsinline></video>
+
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script>
+    window.onload = () => {
+      const audio = document.getElementById('player');
+      let volumeLocked = false;
+      let playPauseState = 'playing';
+      let scrollVelocity = 0;
+      let prevMiddleYLeft = null;
+
+      const SCROLL_DEADZONE = 0.005;
+      const FULL_HAND_FINGERS = [8, 12, 16, 20];
+
+      function isExtended(landmarks, tip, pip) {
+        return landmarks[tip].y < landmarks[pip].y;
+      }
+
+      function areAllFingersExtended(landmarks) {
+        return FULL_HAND_FINGERS.every(tip => isExtended(landmarks, tip, tip - 2));
+      }
+
+      function areAllFingersClosed(landmarks) {
+        return FULL_HAND_FINGERS.every(tip => !isExtended(landmarks, tip, tip - 2));
+      }
+
+      function updateVolumeDisplay(volume) {
+        const volumeDisplay = document.getElementById('volume-icon');
+        const percent = Math.round(volume * 100);
+        volumeDisplay.textContent = `🔊 ${percent}%`;
+        volumeDisplay.style.opacity = 1;
+        clearTimeout(volumeDisplay._timeout);
+        volumeDisplay._timeout = setTimeout(() => {
+          volumeDisplay.style.opacity = 0.5;
+        }, 1500);
+      }
+
+      function updateVolumeLockDisplay(locked) {
+        const volumeStatus = document.getElementById('volume-lock-status');
+        volumeStatus.textContent = locked ? '🔒 Locked' : '🔓 Unlocked';
+        volumeStatus.style.opacity = 1;
+        clearTimeout(volumeStatus._timeout);
+        volumeStatus._timeout = setTimeout(() => {
+          volumeStatus.style.opacity = 0.5;
+        }, 1500);
+      }
+
+      function handleRightHand(landmarks) {
+        if (!audio) return;
+        const allExtended = areAllFingersExtended(landmarks);
+        const allClosed = areAllFingersClosed(landmarks);
+
+        if (allExtended && playPauseState === 'paused') {
+          audio.play();
+          playPauseState = 'playing';
+        } else if (allClosed && playPauseState === 'playing') {
+          audio.pause();
+          playPauseState = 'paused';
+        }
+
+        if (!volumeLocked) {
+          const dist = Math.hypot(landmarks[4].x - landmarks[8].x, landmarks[4].y - landmarks[8].y);
+          let vol = Math.min(Math.max((dist - 0.02) / (0.3 - 0.02), 0), 1);
+          audio.volume = vol;
+          updateVolumeDisplay(vol);
+        }
+      }
+
+      function handleLeftHand(landmarks) {
+        const thumb = isExtended(landmarks, 4, 3);
+        const index = isExtended(landmarks, 8, 6);
+        const middle = isExtended(landmarks, 12, 10);
+        const ring = isExtended(landmarks, 16, 14);
+        const pinky = isExtended(landmarks, 20, 18);
+        const middleY = landmarks[12].y;
+
+        if (thumb && !index && !volumeLocked) {
+          volumeLocked = true;
+          updateVolumeLockDisplay(true);
+        } else if (!thumb && index && volumeLocked) {
+          volumeLocked = false;
+          updateVolumeLockDisplay(false);
+        }
+
+        if (middle && !index && !thumb && !ring && !pinky) {
+          const deltaY = prevMiddleYLeft !== null ? prevMiddleYLeft - middleY : 0;
+          if (Math.abs(deltaY) > SCROLL_DEADZONE) {
+            scrollVelocity = deltaY * 1200;
+          } else {
+            scrollVelocity *= 0.5;
+          }
+          prevMiddleYLeft = middleY;
+        } else {
+          scrollVelocity = 0;
+        }
+      }
+
+      function animateScroll() {
+        if (Math.abs(scrollVelocity) > 0.1) {
+          window.scrollBy(0, -scrollVelocity);
+          scrollVelocity *= 0.85;
+        }
+        requestAnimationFrame(animateScroll);
+      }
+      animateScroll();
+
+      const hands = new Hands({
+        locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+      });
+      hands.setOptions({
+        maxNumHands: 2,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.7,
+        minTrackingConfidence: 0.7
+      });
+
+      hands.onResults(results => {
+        if (!results.multiHandLandmarks || !results.multiHandedness) return;
+        results.multiHandedness.forEach((handedness, i) => {
+          const lm = results.multiHandLandmarks[i];
+          if (handedness.label === "Right") {
+            handleRightHand(lm);
+          } else if (handedness.label === "Left") {
+            handleLeftHand(lm);
+          }
+        });
+      });
+
+      const camera = new Camera(document.getElementById('input_video'), {
+        onFrame: async () => await hands.send({ image: document.getElementById('input_video') }),
+        width: 640,
+        height: 480
+      });
+      camera.start();
+    };
+  </script>
+</body>
+</html>
