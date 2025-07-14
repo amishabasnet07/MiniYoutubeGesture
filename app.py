@@ -28,7 +28,7 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
-# ✅ Home page (gesture-controlled player)
+# ✅ Home page
 @app.route('/')
 def home():
     conn = get_db_connection()
@@ -36,15 +36,22 @@ def home():
     conn.close()
     return render_template('index.html', songs=songs)
 
-# ✅ Route to play song
+# ✅ Route to play a song with playlist + current index
 @app.route('/play/<int:song_id>')
 def play_song(song_id):
     conn = get_db_connection()
-    song = conn.execute('SELECT * FROM songs WHERE id=?', (song_id,)).fetchone()
+    songs_raw = conn.execute('SELECT * FROM songs').fetchall()
     conn.close()
+
+    # ✅ Convert sqlite3.Row to dictionary
+    songs = [dict(s) for s in songs_raw]
+    song = next((s for s in songs if s['id'] == song_id), None)
+
     if not song:
         return "Song not found", 404
-    return render_template('player.html', song=song)
+
+    current_index = next((i for i, s in enumerate(songs) if s['id'] == song_id), 0)
+    return render_template('player.html', song=song, songs=songs, song_index=current_index)
 
 # ✅ Admin login
 @app.route('/admin/login', methods=['GET', 'POST'])

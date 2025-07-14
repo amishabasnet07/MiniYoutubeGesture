@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>{{ song.title }} - MiniYouTube</title>
-  <link href="https://fonts.googleapis.com/css2?family=Roboto&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet" />
   <style>
     * {
       margin: 0;
@@ -15,51 +15,102 @@
       color: #fff;
       font-family: 'Roboto', sans-serif;
       display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
-      padding: 20px;
-      flex-direction: column;
+      padding: 20px 30px;
+      height: 100vh;
+      overflow: hidden;
     }
     .player-container {
-      background: #181818;
-      border-radius: 20px;
-      padding: 30px;
-      max-width: 600px;
-      width: 100%;
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-      text-align: center;
+      flex: 2;
+      max-width: 880px;
+      margin-right: 20px;
     }
-    .player-container img {
-      width: 100%;
+    .player-box {
+      background: #1e1e1e;
       border-radius: 12px;
-      margin-bottom: 20px;
+      padding: 25px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.6);
+    }
+    .player-box img {
+      width: 100%;
+      height: 460px;
       object-fit: cover;
-      height: 300px;
+      border-radius: 10px;
+      margin-bottom: 15px;
     }
     h1 {
       font-size: 24px;
-      margin-bottom: 10px;
+      margin: 10px 0 5px;
+      font-weight: 700;
     }
     h3 {
-      font-size: 18px;
-      color: #aaa;
+      font-size: 16px;
+      color: #bbb;
       margin-bottom: 20px;
     }
     audio {
       width: 100%;
-      outline: none;
+      margin-bottom: 20px;
     }
-    a.back-btn {
-      margin-top: 20px;
-      text-decoration: none;
-      color: #0af;
+    .nav-btns {
+      display: flex;
+      gap: 10px;
+    }
+    .nav-btns button {
+      flex: 1;
+      background: linear-gradient(135deg, #0af, #06f);
+      color: white;
+      border: none;
+      padding: 14px;
       font-weight: bold;
-      font-size: 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: transform 0.2s;
     }
-
-    #input_video {
-      display: none;
+    .nav-btns button:hover {
+      transform: scale(1.03);
+    }
+    .playlist {
+      flex: 1;
+      max-height: 100vh;
+      overflow-y: auto;
+      background: #1e1e1e;
+      border-radius: 12px;
+      padding: 15px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+    }
+    .playlist h2 {
+      font-size: 18px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid #333;
+      padding-bottom: 5px;
+    }
+    .song-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+      cursor: pointer;
+      padding: 8px;
+      border-radius: 8px;
+      transition: background 0.3s;
+    }
+    .song-item:hover {
+      background: #292929;
+    }
+    .song-item img {
+      width: 64px;
+      height: 64px;
+      border-radius: 8px;
+      object-fit: cover;
+    }
+    .song-item .info {
+      display: flex;
+      flex-direction: column;
+      font-size: 14px;
+    }
+    .song-item.active {
+      background: #0af2;
     }
     #volume-icon, #volume-lock-status {
       position: fixed;
@@ -74,23 +125,38 @@
       opacity: 0.5;
       user-select: none;
     }
-    #volume-icon {
-      right: 20px;
-    }
-    #volume-lock-status {
-      right: 150px;
-    }
+    #volume-icon { right: 20px; }
+    #volume-lock-status { right: 150px; }
+    #input_video { display: none; }
   </style>
 </head>
 <body>
   <div class="player-container">
-    <img src="{{ url_for('static', filename='images/' + song.image) }}" alt="Cover" />
-    <h1>{{ song.title }}</h1>
-    <h3>{{ song.artist }}</h3>
-    <audio id="player" controls autoplay>
-      <source src="{{ url_for('static', filename='songs/' + song.filename) }}" type="audio/mpeg">
-    </audio>
-    <a href="/" class="back-btn">⬅ Back to Home</a>
+    <div class="player-box">
+      <img id="cover" src="{{ url_for('static', filename='images/' + song.image) }}" alt="Cover" />
+      <h1 id="title">{{ song.title }}</h1>
+      <h3 id="artist">{{ song.artist }}</h3>
+      <audio id="player" controls autoplay>
+        <source id="source" src="{{ url_for('static', filename='songs/' + song.filename) }}" type="audio/mpeg">
+      </audio>
+      <div class="nav-btns">
+        <button id="prevBtn">⬅ Previous</button>
+        <button id="nextBtn">Next ➡</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="playlist" id="playlist">
+    <h2>Up Next</h2>
+    {% for s in songs %}
+      <div class="song-item {% if loop.index0 == song_index %}active{% endif %}" data-index="{{ loop.index0 }}">
+        <img src="{{ url_for('static', filename='images/' + s.image) }}" />
+        <div class="info">
+          <strong>{{ s.title }}</strong>
+          <small>{{ s.artist }}</small>
+        </div>
+      </div>
+    {% endfor %}
   </div>
 
   <div id="volume-icon">🔊 100%</div>
@@ -100,137 +166,164 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
   <script>
-    window.onload = () => {
-      const audio = document.getElementById('player');
-      let volumeLocked = false;
-      let playPauseState = 'playing';
-      let scrollVelocity = 0;
-      let prevMiddleYLeft = null;
+    const songs = {{ songs|tojson }};
+    let currentIndex = {{ song_index }};
+    const audio = document.getElementById("player");
+    const source = document.getElementById("source");
+    const title = document.getElementById("title");
+    const artist = document.getElementById("artist");
+    const cover = document.getElementById("cover");
+    const playlistDiv = document.getElementById("playlist");
+    let volumeLocked = false;
+    let isPausedByGesture = false;
 
-      const SCROLL_DEADZONE = 0.005;
-      const FULL_HAND_FINGERS = [8, 12, 16, 20];
+    function playSong(index) {
+      const s = songs[index];
+      source.src = `/static/songs/${s.filename}`;
+      cover.src = `/static/images/${s.image}`;
+      title.textContent = s.title;
+      artist.textContent = s.artist;
+      audio.load();
+      audio.play();
+      currentIndex = index;
 
-      function isExtended(landmarks, tip, pip) {
-        return landmarks[tip].y < landmarks[pip].y;
-      }
-
-      function areAllFingersExtended(landmarks) {
-        return FULL_HAND_FINGERS.every(tip => isExtended(landmarks, tip, tip - 2));
-      }
-
-      function areAllFingersClosed(landmarks) {
-        return FULL_HAND_FINGERS.every(tip => !isExtended(landmarks, tip, tip - 2));
-      }
-
-      function updateVolumeDisplay(volume) {
-        const volumeDisplay = document.getElementById('volume-icon');
-        const percent = Math.round(volume * 100);
-        volumeDisplay.textContent = `🔊 ${percent}%`;
-        volumeDisplay.style.opacity = 1;
-        clearTimeout(volumeDisplay._timeout);
-        volumeDisplay._timeout = setTimeout(() => {
-          volumeDisplay.style.opacity = 0.5;
-        }, 1500);
-      }
-
-      function updateVolumeLockDisplay(locked) {
-        const volumeStatus = document.getElementById('volume-lock-status');
-        volumeStatus.textContent = locked ? '🔒 Locked' : '🔓 Unlocked';
-        volumeStatus.style.opacity = 1;
-        clearTimeout(volumeStatus._timeout);
-        volumeStatus._timeout = setTimeout(() => {
-          volumeStatus.style.opacity = 0.5;
-        }, 1500);
-      }
-
-      function handleRightHand(landmarks) {
-        if (!audio) return;
-        const allExtended = areAllFingersExtended(landmarks);
-        const allClosed = areAllFingersClosed(landmarks);
-
-        if (allExtended && playPauseState === 'paused') {
-          audio.play();
-          playPauseState = 'playing';
-        } else if (allClosed && playPauseState === 'playing') {
-          audio.pause();
-          playPauseState = 'paused';
-        }
-
-        if (!volumeLocked) {
-          const dist = Math.hypot(landmarks[4].x - landmarks[8].x, landmarks[4].y - landmarks[8].y);
-          let vol = Math.min(Math.max((dist - 0.02) / (0.3 - 0.02), 0), 1);
-          audio.volume = vol;
-          updateVolumeDisplay(vol);
-        }
-      }
-
-      function handleLeftHand(landmarks) {
-        const thumb = isExtended(landmarks, 4, 3);
-        const index = isExtended(landmarks, 8, 6);
-        const middle = isExtended(landmarks, 12, 10);
-        const ring = isExtended(landmarks, 16, 14);
-        const pinky = isExtended(landmarks, 20, 18);
-        const middleY = landmarks[12].y;
-
-        if (thumb && !index && !volumeLocked) {
-          volumeLocked = true;
-          updateVolumeLockDisplay(true);
-        } else if (!thumb && index && volumeLocked) {
-          volumeLocked = false;
-          updateVolumeLockDisplay(false);
-        }
-
-        if (middle && !index && !thumb && !ring && !pinky) {
-          const deltaY = prevMiddleYLeft !== null ? prevMiddleYLeft - middleY : 0;
-          if (Math.abs(deltaY) > SCROLL_DEADZONE) {
-            scrollVelocity = deltaY * 1200;
-          } else {
-            scrollVelocity *= 0.5;
-          }
-          prevMiddleYLeft = middleY;
-        } else {
-          scrollVelocity = 0;
-        }
-      }
-
-      function animateScroll() {
-        if (Math.abs(scrollVelocity) > 0.1) {
-          window.scrollBy(0, -scrollVelocity);
-          scrollVelocity *= 0.85;
-        }
-        requestAnimationFrame(animateScroll);
-      }
-      animateScroll();
-
-      const hands = new Hands({
-        locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+      document.querySelectorAll(".song-item").forEach((el, idx) => {
+        el.classList.toggle("active", idx === currentIndex);
       });
-      hands.setOptions({
-        maxNumHands: 2,
-        modelComplexity: 1,
-        minDetectionConfidence: 0.7,
-        minTrackingConfidence: 0.7
-      });
+    }
 
-      hands.onResults(results => {
-        if (!results.multiHandLandmarks || !results.multiHandedness) return;
-        results.multiHandedness.forEach((handedness, i) => {
-          const lm = results.multiHandLandmarks[i];
-          if (handedness.label === "Right") {
-            handleRightHand(lm);
-          } else if (handedness.label === "Left") {
-            handleLeftHand(lm);
-          }
-        });
-      });
-
-      const camera = new Camera(document.getElementById('input_video'), {
-        onFrame: async () => await hands.send({ image: document.getElementById('input_video') }),
-        width: 640,
-        height: 480
-      });
-      camera.start();
+    document.getElementById("nextBtn").onclick = () => {
+      if (currentIndex + 1 < songs.length) playSong(currentIndex + 1);
     };
+    document.getElementById("prevBtn").onclick = () => {
+      if (currentIndex > 0) playSong(currentIndex - 1);
+    };
+
+    audio.onended = () => {
+      if (currentIndex + 1 < songs.length) playSong(currentIndex + 1);
+    };
+
+    function updateVolumeDisplay(volume) {
+      const volumeDisplay = document.getElementById('volume-icon');
+      const percent = Math.round(volume * 100);
+      volumeDisplay.textContent = `🔊 ${percent}%`;
+      volumeDisplay.style.opacity = 1;
+      clearTimeout(volumeDisplay._timeout);
+      volumeDisplay._timeout = setTimeout(() => {
+        volumeDisplay.style.opacity = 0.5;
+      }, 1500);
+    }
+
+    function updateVolumeLockDisplay(locked) {
+      const volumeStatus = document.getElementById('volume-lock-status');
+      volumeStatus.textContent = locked ? '🔒 Locked' : '🔓 Unlocked';
+      volumeStatus.style.opacity = 1;
+      clearTimeout(volumeStatus._timeout);
+      volumeStatus._timeout = setTimeout(() => {
+        volumeStatus.style.opacity = 0.5;
+      }, 1500);
+    }
+
+    let prevX = null;
+    let prevY = null;
+    let gestureCooldown = 0;
+
+    const hands = new Hands({
+      locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+    hands.setOptions({
+      maxNumHands: 2,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.7
+    });
+    hands.onResults(results => {
+      if (!results.multiHandLandmarks || !results.multiHandedness) return;
+      results.multiHandedness.forEach((handedness, i) => {
+        const lm = results.multiHandLandmarks[i];
+        const label = handedness.label;
+        const indexFinger = lm[8];
+
+        if (gestureCooldown > 0) {
+          gestureCooldown--;
+          return;
+        }
+
+        const isOnlyIndexExtended = (lm) => {
+          return lm[8].y < lm[6].y &&
+                 lm[12].y > lm[10].y &&
+                 lm[16].y > lm[14].y &&
+                 lm[20].y > lm[18].y;
+        };
+
+        const areAllFingersClosed = (lm) => {
+          return [8, 12, 16, 20].every(tip => lm[tip].y > lm[tip - 2].y);
+        };
+
+        const isVolumeGesture = (lm) => {
+          return Math.abs(lm[4].x - lm[8].x) < 0.05 && Math.abs(lm[4].y - lm[8].y) < 0.05;
+        };
+
+        if (label === "Right") {
+          if (areAllFingersClosed(lm)) {
+            if (!audio.paused) {
+              audio.pause();
+              isPausedByGesture = true;
+            }
+            gestureCooldown = 20;
+          } else if (isPausedByGesture && !areAllFingersClosed(lm)) {
+            audio.play();
+            isPausedByGesture = false;
+          } else if (isOnlyIndexExtended(lm)) {
+            if (prevX !== null) {
+              const deltaX = indexFinger.x - prevX;
+              if (deltaX < -0.08) {
+                document.getElementById("nextBtn").click();
+                gestureCooldown = 30;
+              } else if (deltaX > 0.08) {
+                document.getElementById("prevBtn").click();
+                gestureCooldown = 30;
+              }
+            }
+            prevX = indexFinger.x;
+          }
+
+          if (!volumeLocked && isVolumeGesture(lm)) {
+            const dist = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
+            let vol = Math.min(Math.max((dist - 0.02) / (0.3 - 0.02), 0), 1);
+            audio.volume = vol;
+            updateVolumeDisplay(vol);
+          }
+        }
+
+        if (label === "Left") {
+          const thumb = lm[4].y < lm[3].y;
+          const index = lm[8].y < lm[6].y;
+          if (thumb && !index && !volumeLocked) {
+            volumeLocked = true;
+            updateVolumeLockDisplay(true);
+          } else if (!thumb && index && volumeLocked) {
+            volumeLocked = false;
+            updateVolumeLockDisplay(false);
+          }
+
+          if (isOnlyIndexExtended(lm)) {
+            if (prevY !== null) {
+              const deltaY = (indexFinger.y - prevY) * 300;
+              playlistDiv.scrollTop += deltaY;
+            }
+            prevY = indexFinger.y;
+          }
+        }
+      });
+    });
+
+    const camera = new Camera(document.getElementById('input_video'), {
+      onFrame: async () => await hands.send({ image: document.getElementById('input_video') }),
+      width: 640,
+      height: 480
+    });
+    camera.start();
   </script>
 </body>
 </html>
